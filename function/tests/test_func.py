@@ -265,3 +265,25 @@ def test_direct_invoke_reads_json_body(gemini):
     ctx = context.InvokeContext("app", "a", "fn", "f", "c", request_url=None)
     resp = func.handler(ctx, io.BytesIO(b'{"cuvant": "rece"}'))
     assert json.loads(resp.body())["antonime"] == ["cald", "fierbinte"]
+    assert ctx.GetResponseHeaders()["x-antonime-status"] == "200"
+
+
+@pytest.mark.parametrize(
+    ("body", "status"),
+    [(b'{"cuvant": "foarte bun"}', "400"), (b"not json", "400"), (b'{"cuvant": "bun"}', "502")],
+)
+def test_direct_invoke_status_travels_in_header(monkeypatch, body, status):
+    """Container answers 200 so OCI passes our JSON body through; the proxy
+    reads the real status from X-Antonime-Status."""
+    monkeypatch.setattr(func.urllib.request, "urlopen", FakeGemini(error=TimeoutError()))
+    ctx = context.InvokeContext("app", "a", "fn", "f", "c", request_url=None)
+    resp = func.handler(ctx, io.BytesIO(body))
+    assert resp.status() == 200
+    assert ctx.GetResponseHeaders()["x-antonime-status"] == status
+    assert "eroare" in json.loads(resp.body())
+
+
+def test_gateway_mode_keeps_real_status_too(gemini):
+    ctx = make_ctx("/antonime?cuvant=foarte%20bun")
+    func.handler(ctx)
+    assert ctx.GetResponseHeaders()["fn-http-h-x-antonime-status"] == "400"

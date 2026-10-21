@@ -198,6 +198,12 @@ def word_from_request(request_url: str | None, data: io.BytesIO | None) -> str |
 
 def handler(ctx, data: io.BytesIO | None = None):
     status, body = lookup(word_from_request(ctx.RequestURL(), data))
+    # Behind an HTTP gateway, fdk carries status_code in Fn-Http-Status. On a
+    # direct invoke (our signing proxy) the container may only answer 200/502/504:
+    # fdk turns 400/429 into 200, and a 502 makes OCI replace our JSON body.
+    # So: real status always in X-Antonime-Status, container status 200 unless
+    # a gateway can carry the real one.
+    via_gateway = ctx.Headers().get("fn-intent") == "httprequest"
     return response.Response(
         ctx,
         response_data=json.dumps(body, ensure_ascii=False),
@@ -205,6 +211,7 @@ def handler(ctx, data: io.BytesIO | None = None):
             "Content-Type": "application/json; charset=utf-8",
             # Answers rarely change: let browsers reuse a good one for an hour.
             "Cache-Control": "public, max-age=3600" if status == 200 else "no-store",
+            "X-Antonime-Status": str(status),
         },
-        status_code=status,
+        status_code=status if via_gateway else 200,
     )
