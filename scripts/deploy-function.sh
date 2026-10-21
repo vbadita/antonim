@@ -20,6 +20,17 @@ echo "pushed $digest"
 
 # Deploy by digest: the function runs exactly the bytes we just pushed.
 oci fn function update container-function --function-id "$FUNCTION_ID" \
-  --image "$IMAGE" --image-digest "${digest#*@}" --force \
-  --wait-for-state ACTIVE --max-wait-seconds 300 \
-  --query 'data.{image:image,digest:"image-digest",state:"lifecycle-state"}' --output table
+  --image "$IMAGE" --image-digest "${digest#*@}" --force >/dev/null
+# The update call is synchronous (no work request); still, verify what OCI
+# reports as deployed before calling it done.
+for _ in $(seq 1 30); do
+  deployed=$(oci fn function get --function-id "$FUNCTION_ID" \
+    --query 'data."source-details"."image-digest"' --raw-output)
+  if [ "$deployed" = "${digest#*@}" ]; then
+    echo "deployed $IMAGE (${deployed})"
+    exit 0
+  fi
+  sleep 2
+done
+echo "deployed digest is '$deployed', expected '${digest#*@}'" >&2
+exit 1

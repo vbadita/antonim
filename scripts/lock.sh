@@ -2,8 +2,9 @@
 # Regenerate the lock files from *.in in a throwaway venv, so the lock holds
 # exactly what pip resolves for the direct pins - nothing from this machine.
 set -euo pipefail
-cd "$(dirname "$0")/../function"
-for name in requirements requirements-dev; do
+root="$(cd "$(dirname "$0")/.." && pwd)"
+for spec in function/requirements function/requirements-dev proxy/requirements; do
+  cd "$root/$(dirname "$spec")"; name=$(basename "$spec")
   tmp=$(mktemp -d)
   python3.12 -m venv "$tmp"
   "$tmp/bin/pip" install -q --disable-pip-version-check -r "$name.in" -c constraints.txt

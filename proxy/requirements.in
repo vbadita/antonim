@@ -1,0 +1,2 @@
+# Direct runtime dependency. Full lock: requirements.txt (scripts/lock.sh).
+oci==2.187.2

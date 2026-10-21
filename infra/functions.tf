@@ -35,8 +35,9 @@ resource "oci_functions_application" "app" {
 resource "oci_functions_function" "antonime" {
   application_id = oci_functions_application.app.id
   display_name   = "antonime"
-  # `image` is deprecated for source_details, but the SDK at this provider version
-  # only knows source_type PRE_BUILT_FUNCTIONS (Oracle-made functions), not images.
+  # `image` is deprecated in favour of source_details { source_type = "CONTAINER_IMAGE" }
+  # (that is what OCI reports back). Kept for now: switching the block on an
+  # existing function needs its own plan/test, and CI owns the image anyway.
   image              = var.function_image
   memory_in_mbs      = 128 # smallest size: cheapest GB-seconds
   timeout_in_seconds = 10
