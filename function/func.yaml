@@ -1,0 +1,8 @@
+# Used by the fn CLI only (`fn build/deploy`). The real deployment is
+# Terraform + CI, which set the same memory/timeout on the OCI function.
+schema_version: 20180708
+name: antonime
+version: 0.1.0
+runtime: docker   # build with our own Dockerfile (pinned base image)
+memory: 128
+timeout: 10

@@ -1,0 +1,4 @@
+# Transitive pins held back until they are >= 14 days old (scripts/check-lock-age.sh).
+httptools==0.8.0
+pluggy==1.6.0
+setuptools==84.0.0

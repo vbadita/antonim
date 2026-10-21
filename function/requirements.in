@@ -1,0 +1,2 @@
+# Direct runtime dependency. The full lock is requirements.txt (scripts/lock.sh).
+fdk==0.1.124
