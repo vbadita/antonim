@@ -19,3 +19,9 @@ variable "budget_alert_email" {
   description = "Who gets budget alerts (kept out of Git: set in terraform.tfvars)."
   type        = string
 }
+
+variable "function_image" {
+  description = "Bootstrap image: used only when the function is first created. CI deploys every later image (lifecycle.ignore_changes), so this never has to change."
+  type        = string
+  default     = "fra.ocir.io/frjpwvcxyneb/antonime/function:43ef6b2"
+}

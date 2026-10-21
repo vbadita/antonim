@@ -5,3 +5,20 @@ output "compartment_id" {
 output "budget_id" {
   value = oci_budget_budget.guard.id
 }
+
+output "image_repo" {
+  description = "Push function images here, tagged with the git SHA"
+  value       = local.image_repo
+}
+
+output "application_id" {
+  value = oci_functions_application.app.id
+}
+
+output "function_id" {
+  value = oci_functions_function.antonime.id
+}
+
+output "function_invoke_endpoint" {
+  value = oci_functions_function.antonime.invoke_endpoint
+}
