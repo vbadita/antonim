@@ -15,7 +15,8 @@ was the first design but has no free band in Oracle's price list (part B92072,
 |---|---|
 | `function/` | `func.py` (fdk handler + pure `lookup()`), tests, Dockerfile |
 | `proxy/` | signing proxy: validation, global invocation cap, instance-principal invoke |
-| `deploy/` | nginx snippets, systemd unit |
+| `deploy/` | nginx snippets, systemd units |
+| `docs/cost-checklist.md` | what could cost money, its cap, where to verify it |
 | `infra/` | Terraform: compartment, budget, network, Functions app, IAM |
 | `frontend/` | `index.html`, published to GitHub Pages |
 | `.github/workflows/deploy.yml` | test -> build/push/deploy + smoke test -> frontend |

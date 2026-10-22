@@ -11,12 +11,20 @@ REPO=${IMAGE_REPO:-fra.ocir.io/frjpwvcxyneb/antonime/function}
 IMAGE=$REPO:$TAG
 export SUPPRESS_LABEL_WARNING=True
 
-# --provenance=false: one plain arm64 manifest, not an index with an
-# "unknown/unknown" attestation entry.
-docker build -q --provenance=false --build-arg GIT_SHA="$TAG" -t "$IMAGE" function >/dev/null
-docker push -q "$IMAGE" >/dev/null
-digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
-echo "pushed $digest"
+# One image per function-source commit. Builds are not byte-reproducible, so
+# rebuilding an existing tag would move it to new bytes and leave the old
+# image behind in OCIR (storage that only grows). If the tag exists: reuse it.
+if existing=$(docker manifest inspect -v "$IMAGE" 2>/dev/null); then
+  digest="$REPO@$(printf '%s' "$existing" | python3 -c 'import json,sys; print(json.load(sys.stdin)["Descriptor"]["digest"])')"
+  echo "exists $digest (not rebuilt)"
+else
+  # --provenance=false: one plain arm64 manifest, not an index with an
+  # "unknown/unknown" attestation entry.
+  docker build -q --provenance=false --build-arg GIT_SHA="$TAG" -t "$IMAGE" function >/dev/null
+  docker push -q "$IMAGE" >/dev/null
+  digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
+  echo "pushed $digest"
+fi
 
 # Deploy by digest: the function runs exactly the bytes we just pushed.
 oci fn function update container-function --function-id "$FUNCTION_ID" \
