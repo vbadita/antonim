@@ -58,13 +58,16 @@ resource "oci_identity_api_key" "ci" {
 }
 
 # manage + where: the verb that contains the permission, narrowed to exactly
-# the permissions needed. No REPOSITORY_CREATE/DELETE, no FN_FUNCTION_CREATE/DELETE.
+# the permissions needed. Found by testing (2026-10-22), not just the docs:
+# pushing a NEW tag also needs REPOSITORY_CREATE (docs: "only if the repository
+# doesn't exist"); REPOSITORY_INSPECT is not needed. No DELETE anywhere, no
+# FN_FUNCTION_CREATE/DELETE.
 resource "oci_identity_policy" "ci" {
   compartment_id = oci_identity_compartment.antonime.id
   name           = "antonime-ci"
   description    = "CI may push function images and update the antonime function, nothing more"
   statements = [
-    "Allow group ${oci_identity_group.ci.name} to manage repos in compartment id ${oci_identity_compartment.antonime.id} where any {request.permission = 'REPOSITORY_READ', request.permission = 'REPOSITORY_UPDATE'}",
+    "Allow group ${oci_identity_group.ci.name} to manage repos in compartment id ${oci_identity_compartment.antonime.id} where any {request.permission = 'REPOSITORY_READ', request.permission = 'REPOSITORY_UPDATE', request.permission = 'REPOSITORY_CREATE'}",
     "Allow group ${oci_identity_group.ci.name} to manage fn-function in compartment id ${oci_identity_compartment.antonime.id} where any {request.permission = 'FN_FUNCTION_READ', request.permission = 'FN_FUNCTION_UPDATE'}",
   ]
 }

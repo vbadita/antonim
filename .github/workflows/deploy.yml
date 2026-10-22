@@ -1,0 +1,120 @@
+# test -> deploy (build, push, update image + config, smoke test). Frontend job: step 6.
+# Third-party actions are pinned by commit SHA (a tag can be moved; a SHA cannot).
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege for the GITHUB_TOKEN: read the code, nothing else.
+permissions:
+  contents: read
+
+# One deploy at a time; never cancel one halfway (image pushed, config not set).
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12.15" # same as the function image
+
+      - name: Install locked dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --disable-pip-version-check --no-deps \
+            -r function/requirements.txt -r function/requirements-dev.txt -r proxy/requirements.txt
+          .venv/bin/pip check
+
+      - name: Lint
+        run: |
+          .venv/bin/ruff check function proxy
+          .venv/bin/ruff format --check function proxy
+
+      - name: Test function
+        working-directory: function
+        run: ../.venv/bin/pytest -q
+
+      - name: Test proxy
+        working-directory: proxy
+        run: ../.venv/bin/pytest -q
+
+      - name: Dependencies are at least 14 days old
+        run: scripts/check-lock-age.sh
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.16.5
+          terraform_wrapper: false
+
+      - name: Terraform fmt + validate
+        working-directory: infra
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false -input=false
+          terraform validate
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-24.04-arm # native arm64 build for the GENERIC_ARM application
+    timeout-minutes: 20
+    # Secrets live in this environment (main branch only); the test job never sees them.
+    environment: production
+    env:
+      SUPPRESS_LABEL_WARNING: "True"
+      # Read by the OCI CLI directly: the antonime-ci user, never the admin key.
+      OCI_CLI_USER: ${{ secrets.OCI_CLI_USER }}
+      OCI_CLI_TENANCY: ${{ secrets.OCI_CLI_TENANCY }}
+      OCI_CLI_FINGERPRINT: ${{ secrets.OCI_CLI_FINGERPRINT }}
+      OCI_CLI_KEY_CONTENT: ${{ secrets.OCI_CLI_KEY_CONTENT }}
+      OCI_CLI_REGION: ${{ secrets.OCI_CLI_REGION }}
+      FUNCTION_ID: ${{ vars.ANTONIME_FUNCTION_ID }}
+      IMAGE_REPO: ${{ vars.IMAGE_REPO }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # the image tag is the last commit that touched function/
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12.15"
+
+      - name: Install OCI CLI (pinned, same constraints as the VM)
+        run: |
+          python -m venv "$RUNNER_TEMP/oci"
+          "$RUNNER_TEMP/oci/bin/pip" install -q --disable-pip-version-check \
+            oci-cli==3.94.2 -c scripts/oci-cli-constraints.txt
+          echo "$RUNNER_TEMP/oci/bin" >> "$GITHUB_PATH"
+
+      - name: Log in to OCIR
+        env:
+          OCIR_USERNAME: ${{ vars.OCIR_USERNAME }}
+          OCIR_AUTH_TOKEN: ${{ secrets.OCIR_AUTH_TOKEN }}
+        run: printf '%s' "$OCIR_AUTH_TOKEN" | docker login fra.ocir.io -u "$OCIR_USERNAME" --password-stdin
+
+      - name: Build, push, deploy (by digest)
+        run: scripts/deploy-function.sh "$FUNCTION_ID"
+
+      - name: Set function config
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+        run: scripts/set-function-config.sh "$FUNCTION_ID"
+
+      - name: Smoke test (public URL, must report the deployed version)
+        run: scripts/smoke-test.sh "${{ vars.API_URL }}" "$(git log -1 --format=%h -- function)"
+
+      - name: Log out of OCIR
+        if: always()
+        run: docker logout fra.ocir.io
