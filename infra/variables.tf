@@ -31,3 +31,8 @@ variable "proxy_instance_ocid" {
   type        = string
   default     = "ocid1.instance.oc1.eu-frankfurt-1.antheljrhtkscaicttg6ritpvsa42i6u52u62bw5fywpdabpbiecskgnx3pa"
 }
+
+variable "ci_user_email" {
+  description = "Email for the CI user (identity domains require one). Kept out of Git: terraform.tfvars."
+  type        = string
+}

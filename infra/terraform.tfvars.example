@@ -1,2 +1,3 @@
 tenancy_ocid       = "ocid1.tenancy.oc1..xxxx"
 budget_alert_email = "you@example.com"
+ci_user_email      = "you+ci@example.com"

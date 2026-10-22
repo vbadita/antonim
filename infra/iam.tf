@@ -29,3 +29,42 @@ resource "oci_identity_policy" "invoke" {
     "Allow dynamic-group ${oci_identity_dynamic_group.invokers.name} to use fn-invocation in compartment id ${oci_identity_compartment.antonime.id}",
   ]
 }
+
+# ---- CI (GitHub Actions) ------------------------------------------------------
+# A dedicated user, not the admin key: if the GitHub secret leaks, the blast
+# radius is "push an image / update this one function", nothing else.
+resource "oci_identity_user" "ci" {
+  compartment_id = var.tenancy_ocid
+  name           = "antonime-ci"
+  description    = "GitHub Actions deployer for vbadita/antonim"
+  email          = var.ci_user_email
+}
+
+resource "oci_identity_group" "ci" {
+  compartment_id = var.tenancy_ocid
+  name           = "antonime-ci"
+  description    = "Deploys the antonime function from CI"
+}
+
+resource "oci_identity_user_group_membership" "ci" {
+  user_id  = oci_identity_user.ci.id
+  group_id = oci_identity_group.ci.id
+}
+
+# Public half only; the private key lives in GitHub Secrets (OCI_CLI_KEY_CONTENT).
+resource "oci_identity_api_key" "ci" {
+  user_id   = oci_identity_user.ci.id
+  key_value = file("${path.module}/ci-api-key.pub.pem")
+}
+
+# manage + where: the verb that contains the permission, narrowed to exactly
+# the permissions needed. No REPOSITORY_CREATE/DELETE, no FN_FUNCTION_CREATE/DELETE.
+resource "oci_identity_policy" "ci" {
+  compartment_id = oci_identity_compartment.antonime.id
+  name           = "antonime-ci"
+  description    = "CI may push function images and update the antonime function, nothing more"
+  statements = [
+    "Allow group ${oci_identity_group.ci.name} to manage repos in compartment id ${oci_identity_compartment.antonime.id} where any {request.permission = 'REPOSITORY_READ', request.permission = 'REPOSITORY_UPDATE'}",
+    "Allow group ${oci_identity_group.ci.name} to manage fn-function in compartment id ${oci_identity_compartment.antonime.id} where any {request.permission = 'FN_FUNCTION_READ', request.permission = 'FN_FUNCTION_UPDATE'}",
+  ]
+}

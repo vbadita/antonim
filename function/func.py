@@ -47,6 +47,10 @@ MAX_LLM_CALLS_PER_MINUTE = 100
 MAX_ANTONYMS = 8
 MAX_ANTONYM_LEN = 60
 
+# Set by the Dockerfile (git SHA of the function source): lets CI prove which
+# version is live, not just that something answers.
+VERSION = os.environ.get("GIT_SHA", "unknown")
+
 ERR_INVALID = {"eroare": "Cuvânt invalid"}
 ERR_LLM = {"eroare": "Serviciul LLM nu a răspuns"}
 ERR_BUSY = {"eroare": "Prea multe cereri. Încearcă din nou peste un minut."}
@@ -212,6 +216,7 @@ def handler(ctx, data: io.BytesIO | None = None):
             # Answers rarely change: let browsers reuse a good one for an hour.
             "Cache-Control": "public, max-age=3600" if status == 200 else "no-store",
             "X-Antonime-Status": str(status),
+            "X-Antonime-Version": VERSION,
         },
         status_code=status if via_gateway else 200,
     )

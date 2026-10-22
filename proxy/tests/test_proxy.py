@@ -13,7 +13,12 @@ import antonime_proxy as proxy
 
 class FakeInvoker:
     def __init__(self, result=None, error=None):
-        self.result = result or (200, b'{"cuvant": "bun", "antonime": ["r\xc4\x83u"]}', "public")
+        self.result = result or (
+            200,
+            b'{"cuvant": "bun", "antonime": ["r\xc4\x83u"]}',
+            "public",
+            "abc1234",
+        )
         self.error = error
         self.words = []
 
@@ -55,11 +60,14 @@ def test_valid_word_is_invoked_and_passed_through(serve):
     assert body == {"cuvant": "bun", "antonime": ["rău"]}
     assert headers["Content-Type"] == "application/json; charset=utf-8"
     assert headers["Cache-Control"] == "public"
+    assert headers["X-Antonime-Version"] == "abc1234"
     assert inv.words == ["bun"]  # stripped before invoking
 
 
 def test_function_status_is_mapped(serve):
-    inv = FakeInvoker(result=(502, b'{"eroare": "Serviciul LLM nu a r\xc4\x83spuns"}', "no-store"))
+    inv = FakeInvoker(
+        result=(502, b'{"eroare": "Serviciul LLM nu a r\xc4\x83spuns"}', "no-store", "abc1234")
+    )
     status, body, _ = get(serve(inv) + "/antonime?cuvant=bun")
     assert (status, body) == (502, {"eroare": "Serviciul LLM nu a răspuns"})
 

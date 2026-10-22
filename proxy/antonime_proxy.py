@@ -65,8 +65,9 @@ def valid_word(raw: str | None) -> bool:
     return bool(raw) and WORD_RE.fullmatch(raw.strip()) is not None
 
 
-# An invoker takes the raw word and returns (status, json_body_bytes, cache_control).
-Invoker = Callable[[str], tuple[int, bytes, str]]
+# An invoker takes the raw word and returns
+# (status, json_body_bytes, cache_control, function_version).
+Invoker = Callable[[str], tuple[int, bytes, str, str]]
 
 
 class OciInvoker:
@@ -98,14 +99,19 @@ class OciInvoker:
             )
         return self._local.client
 
-    def __call__(self, word: str) -> tuple[int, bytes, str]:
+    def __call__(self, word: str) -> tuple[int, bytes, str, str]:
         resp = self._client().invoke_function(
             self.function_id,
             invoke_function_body=json.dumps({"cuvant": word}, ensure_ascii=False),
         )
         # The function answers 200 on direct invokes; the real status is here.
         status = int(resp.headers.get("X-Antonime-Status", "502"))
-        return status, resp.data.content, resp.headers.get("Cache-Control", "no-store")
+        return (
+            status,
+            resp.data.content,
+            resp.headers.get("Cache-Control", "no-store"),
+            resp.headers.get("X-Antonime-Version", ""),
+        )
 
 
 def make_handler(invoke: Invoker, cap: MinuteCap) -> type[BaseHTTPRequestHandler]:
@@ -113,13 +119,17 @@ def make_handler(invoke: Invoker, cap: MinuteCap) -> type[BaseHTTPRequestHandler
         server_version = "antonime-proxy"
         sys_version = ""
 
-        def _send(self, status: int, body: bytes | dict, cache: str = "no-store") -> None:
+        def _send(
+            self, status: int, body: bytes | dict, cache: str = "no-store", version: str = ""
+        ) -> None:
             if isinstance(body, dict):
                 body = json.dumps(body, ensure_ascii=False).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", cache)
             self.send_header("Content-Length", str(len(body)))
+            if version:  # which function image answered (CI smoke test checks it)
+                self.send_header("X-Antonime-Version", version)
             self.end_headers()
             self.wfile.write(body)
 
@@ -133,7 +143,7 @@ def make_handler(invoke: Invoker, cap: MinuteCap) -> type[BaseHTTPRequestHandler
                 self._send(404, ERR_NOT_FOUND)
                 return
             word = (parse_qs(url.query).get("cuvant") or [None])[0]
-            invoked = False
+            invoked, version = False, ""
             if not valid_word(word):
                 status, body, cache = 400, ERR_INVALID, "no-store"
             elif not cap.acquire():
@@ -141,11 +151,11 @@ def make_handler(invoke: Invoker, cap: MinuteCap) -> type[BaseHTTPRequestHandler
             else:
                 invoked = True
                 try:
-                    status, body, cache = invoke(word.strip())
+                    status, body, cache, version = invoke(word.strip())
                 except Exception as exc:  # OCI error, timeout, network: never a traceback
                     log("invoke_failed", error=type(exc).__name__, detail=str(exc)[:200])
                     status, body, cache = 502, ERR_UNAVAILABLE, "no-store"
-            self._send(status, body, cache)
+            self._send(status, body, cache, version)
             log(
                 "request",
                 status=status,

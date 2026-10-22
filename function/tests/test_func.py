@@ -266,6 +266,7 @@ def test_direct_invoke_reads_json_body(gemini):
     resp = func.handler(ctx, io.BytesIO(b'{"cuvant": "rece"}'))
     assert json.loads(resp.body())["antonime"] == ["cald", "fierbinte"]
     assert ctx.GetResponseHeaders()["x-antonime-status"] == "200"
+    assert ctx.GetResponseHeaders()["x-antonime-version"] == func.VERSION
 
 
 @pytest.mark.parametrize(

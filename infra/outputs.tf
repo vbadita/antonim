@@ -22,3 +22,11 @@ output "function_id" {
 output "function_invoke_endpoint" {
   value = oci_functions_function.antonime.invoke_endpoint
 }
+
+output "ci_user_ocid" {
+  value = oci_identity_user.ci.id
+}
+
+output "ci_api_key_fingerprint" {
+  value = oci_identity_api_key.ci.fingerprint
+}
