@@ -1,4 +1,5 @@
-# test -> deploy (build, push, update image + config, smoke test). Frontend job: step 6.
+# test -> deploy (build, push, update image + config, smoke test)
+#      -> frontend (the VM pulls CI-green pages itself; this job waits until it is live)
 # Third-party actions are pinned by commit SHA (a tag can be moved; a SHA cannot).
 name: deploy
 
@@ -38,8 +39,8 @@ jobs:
 
       - name: Lint
         run: |
-          .venv/bin/ruff check function proxy
-          .venv/bin/ruff format --check function proxy
+          .venv/bin/ruff check function proxy frontend scripts/csp.py
+          .venv/bin/ruff format --check function proxy frontend scripts/csp.py
 
       - name: Test function
         working-directory: function
@@ -48,6 +49,9 @@ jobs:
       - name: Test proxy
         working-directory: proxy
         run: ../.venv/bin/pytest -q
+
+      - name: Test frontend (CSP hashes, no HTML sinks, same word rule)
+        run: .venv/bin/pytest -q frontend/tests
 
       - name: Dependencies are at least 14 days old
         run: scripts/check-lock-age.sh
@@ -118,3 +122,18 @@ jobs:
       - name: Log out of OCIR
         if: always()
         run: docker logout fra.ocir.io
+
+  frontend:
+    needs: test
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # the page version is the last commit that touched it
+
+      - name: Wait until the VM has pulled this page version
+        run: |
+          expected=$(git log -1 --format=%H -- frontend/index.html | cut -c1-7)
+          scripts/wait-frontend.sh "https://apps.badita.com/antonim/" "$expected"

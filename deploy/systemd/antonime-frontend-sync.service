@@ -1,0 +1,27 @@
+[Unit]
+Description=Pull the antonim page from GitHub (only CI-green commits)
+Documentation=https://github.com/vbadita/antonim
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/antonime-frontend-sync
+# A fixed system user (nginx must be able to read what it writes).
+User=antonime-web
+Group=antonime-web
+StateDirectory=antonime-frontend
+# Writable: only the web root. Everything else read-only.
+ProtectSystem=strict
+ReadWritePaths=/srv/antonim
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

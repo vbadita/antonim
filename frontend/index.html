@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Only the exact inline <style>/<script> below may run (hashes maintained by
+     scripts/csp.py; CI fails if they drift). The only network call allowed is
+     the same-origin API. nginx adds frame-ancestors, which a meta tag cannot set. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-jE1I7SHFHVabc6FMv064ir6iEZtEcTHyyphV/8sHmsc='; style-src 'sha256-t7NIWQgzLvETYeKq+R1RSZo0oRYkXmCGGSCE5SlPZBA='; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'self'">
+<meta name="antonime-version" content="__VERSION__">
+<meta name="description" content="Caută antonimele unui cuvânt românesc.">
+<title>Antonime – dicționar de antonime în limba română</title>
+<link rel="icon" href="data:,">
+<style>
+:root {
+  --bg: #f7f7f5; --fg: #1d1d1b; --muted: #5f5f5a; --card: #fff; --line: #d9d9d4;
+  --accent: #1f5fbf; --accent-fg: #fff; --chip: #e8eefb; --chip-fg: #173f7a;
+  --err-bg: #fdecea; --err-fg: #8a1c12;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615; --fg: #ececea; --muted: #a3a39c; --card: #20201f; --line: #3a3a37;
+    --accent: #6ea0f0; --accent-fg: #0d1a2e; --chip: #1f2c44; --chip-fg: #cfe0ff;
+    --err-bg: #3a1714; --err-fg: #ffb4ab;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 17px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+main { max-width: 40rem; margin: 0 auto; padding: 2.5rem 1rem 3rem; }
+h1 { font-size: 1.8rem; margin: 0 0 .25rem; }
+p.lead { color: var(--muted); margin: 0 0 1.5rem; }
+form { display: flex; gap: .5rem; }
+input {
+  flex: 1; min-width: 0; font: inherit; padding: .7rem .9rem;
+  border: 1px solid var(--line); border-radius: .6rem; background: var(--card); color: var(--fg);
+}
+input:focus-visible, button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+button {
+  font: inherit; cursor: pointer; border: 0; border-radius: .6rem;
+}
+#search { padding: .7rem 1.2rem; background: var(--accent); color: var(--accent-fg); font-weight: 600; }
+#search:disabled { opacity: .6; cursor: wait; }
+#status { min-height: 1.5rem; margin: 1.25rem 0 .75rem; }
+#status.error { background: var(--err-bg); color: var(--err-fg); padding: .6rem .8rem; border-radius: .6rem; }
+#results { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: .5rem; }
+.chip { padding: .45rem .9rem; border-radius: 999px; background: var(--chip); color: var(--chip-fg); }
+.chip:hover { text-decoration: underline; }
+footer { margin-top: 3rem; color: var(--muted); font-size: .85rem; }
+footer a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Antonime</h1>
+  <p class="lead">Scrie un cuvânt românesc și află antonimele lui.</p>
+
+  <form id="form" role="search">
+    <input id="word" name="cuvant" type="text" inputmode="text" autocomplete="off"
+           autocapitalize="none" spellcheck="false" maxlength="40" required
+           placeholder="de exemplu: bun" aria-label="Cuvânt">
+    <button id="search" type="submit">Caută</button>
+  </form>
+
+  <p id="status" role="status" aria-live="polite"></p>
+  <ul id="results" aria-label="Antonime"></ul>
+
+  <footer>
+    Răspunsurile sunt generate de un model AI (Gemini) și pot conține greșeli.
+    · <a href="https://github.com/vbadita/antonim">cod sursă</a>
+    · versiune <span id="version">__VERSION__</span>
+  </footer>
+</main>
+<script>
+"use strict";
+// Same origin as the page (nginx on apps.badita.com): no CORS involved.
+const API = "/antonim/api/antonime";
+// Same rule as the function and the proxy (CI checks they match): instant
+// feedback, and an invalid word never costs a request.
+const WORD_RE = /^[a-zA-ZăâîșțĂÂÎȘȚşţŞŢ-]{1,40}$/;
+const MESSAGES = {
+  400: "Cuvânt invalid. Folosește un singur cuvânt: doar litere (cu diacritice) sau cratimă, maximum 40.",
+  429: "Prea multe căutări într-un timp scurt. Încearcă din nou peste un minut.",
+  502: "Serviciul de antonime nu a răspuns. Încearcă din nou.",
+  network: "Nu mă pot conecta la server. Verifică conexiunea la internet.",
+};
+MESSAGES[503] = MESSAGES[502];
+MESSAGES[504] = MESSAGES[502];
+
+const form = document.getElementById("form");
+const input = document.getElementById("word");
+const button = document.getElementById("search");
+const statusEl = document.getElementById("status");
+const results = document.getElementById("results");
+
+// Everything from the network is shown with textContent / createElement,
+// never parsed as HTML: an answer cannot inject markup or scripts.
+function setStatus(text, kind) {
+  statusEl.textContent = text;
+  statusEl.className = kind || "";
+}
+
+function showAntonyms(list) {
+  results.replaceChildren();
+  for (const word of list) {
+    const li = document.createElement("li");
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "chip";
+    chip.textContent = word;
+    chip.addEventListener("click", () => search(word));
+    li.append(chip);
+    results.append(li);
+  }
+}
+
+async function search(raw) {
+  const word = raw.trim();
+  input.value = word;
+  if (!WORD_RE.test(word)) {
+    results.replaceChildren();
+    setStatus(MESSAGES[400], "error");
+    return;
+  }
+  button.disabled = true;
+  setStatus("Caut…");
+  const timeout = new AbortController();
+  const timer = setTimeout(() => timeout.abort(), 70000); // a cold start can take ~45 s
+  try {
+    const resp = await fetch(API + "?cuvant=" + encodeURIComponent(word), {
+      headers: { Accept: "application/json" },
+      signal: timeout.signal,
+    });
+    let data = null;
+    try { data = await resp.json(); } catch { /* not JSON: handled below */ }
+    if (resp.ok && data && Array.isArray(data.antonime)) {
+      history.replaceState(null, "", "?cuvant=" + encodeURIComponent(data.cuvant));
+      if (data.antonime.length) {
+        showAntonyms(data.antonime);
+        setStatus("Antonime pentru „" + data.cuvant + "”:");
+      } else {
+        results.replaceChildren();
+        setStatus("Nu am găsit antonime pentru „" + data.cuvant + "”.");
+      }
+    } else {
+      results.replaceChildren();
+      setStatus(MESSAGES[resp.status] || "Eroare neașteptată (" + resp.status + ").", "error");
+    }
+  } catch {
+    results.replaceChildren();
+    setStatus(MESSAGES.network, "error");
+  } finally {
+    clearTimeout(timer);
+    button.disabled = false;
+  }
+}
+
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  search(input.value);
+});
+
+// Shareable links: /antonim/?cuvant=bun runs the search on load.
+const initial = new URLSearchParams(location.search).get("cuvant");
+if (initial) search(initial);
+</script>
+</body>
+</html>
