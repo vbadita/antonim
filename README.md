@@ -64,3 +64,33 @@ scripts/deploy-function.sh "$(terraform -chdir=infra output -raw function_id)"
 scripts/install-proxy.sh      # /opt/antonime-proxy + antonime-proxy.service
 scripts/install-nginx.sh      # snippets + SELinux port label + reload
 ```
+
+## CI/CD (`.github/workflows/deploy.yml`)
+
+`push to main` -> **test** (lint, function + proxy tests, dependency age, `terraform validate`)
+-> **deploy** (environment `production`): arm64 build, push to OCIR, update the function **by
+digest**, set its config, smoke test through the public URL. The smoke test passes only if the
+answer carries `X-Antonime-Version` = the commit just deployed.
+
+### Secrets and variables (GitHub environment `production`, branch `main` only)
+
+| Name | Kind | Where it is created |
+|---|---|---|
+| `OCI_CLI_USER` | secret | `terraform output ci_user_ocid` (user `antonime-ci`, `infra/iam.tf`) |
+| `OCI_CLI_TENANCY` | secret | OCI Console -> Tenancy details -> OCID (or `tenancy=` in `~/.oci/config`) |
+| `OCI_CLI_FINGERPRINT` | secret | `terraform output ci_api_key_fingerprint` |
+| `OCI_CLI_KEY_CONTENT` | secret | private key made with `openssl genrsa` on the VM (`~/.oci/antonime-ci/key.pem`); its public half is `infra/ci-api-key.pub.pem` |
+| `OCI_CLI_REGION` | secret | home region, `eu-frankfurt-1` |
+| `OCIR_AUTH_TOKEN` | secret | `oci iam auth-token create --user-id <antonime-ci>` (or Console -> Identity -> Users -> antonime-ci -> Auth tokens) |
+| `GEMINI_API_KEY` | secret | https://aistudio.google.com/apikey, on a Google project **without billing** |
+| `ANTONIME_FUNCTION_ID` | variable | `terraform output function_id` |
+| `IMAGE_REPO` | variable | `terraform output image_repo` |
+| `OCIR_USERNAME` | variable | `<namespace>/antonime-ci` |
+| `GEMINI_MODEL` | variable | model name (`gemini-3.5-flash-lite`) |
+| `API_URL` | variable | public API URL used by the smoke test |
+
+Set from files on the VM, never typed or printed: `gh secret set NAME --env production < file`.
+
+CI's OCI permissions (`infra/iam.tf`), found by testing: `manage repos` narrowed to
+`REPOSITORY_READ/UPDATE/CREATE` (a new tag needs CREATE) and `manage fn-function` narrowed to
+`FN_FUNCTION_READ/UPDATE`, only in the `antonime` compartment. No delete anywhere.
