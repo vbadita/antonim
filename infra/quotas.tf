@@ -18,8 +18,12 @@ resource "oci_limits_quota" "antonime" {
     # nothing else that bills by the hour may appear here
     "zero vcn quota reserved-public-ip-count in compartment antonime",
     "zero compute-core quotas in compartment antonime",
+    "zero compute-memory quotas in compartment antonime",
     "zero block-storage quotas in compartment antonime",
     "zero load-balancer quotas in compartment antonime",
     "zero database quotas in compartment antonime",
+    # Object Storage is free up to 10 GB tenancy-wide (price list B91628): keep
+    # this project (state bucket + OCIR images) well below that.
+    "set object-storage quota storage-bytes to 5000000000 in compartment antonime",
   ]
 }
