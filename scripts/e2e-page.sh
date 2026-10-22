@@ -11,9 +11,11 @@ CHROME=${CHROME:-google-chrome}
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
 "$CHROME" --version
-# --timeout: dump the DOM after 25 s of real time (the API answers in < 10 s).
-timeout 90 "$CHROME" --headless=new --disable-gpu --no-first-run --enable-logging=stderr --v=0 \
-  --timeout=25000 --dump-dom "$URL?cuvant=$WORD" >"$tmp/dom.html" 2>"$tmp/console.log"
+# --virtual-time-budget: virtual time stops while requests are pending, so the
+# DOM is dumped only after the page's fetch() has answered and rendered.
+# (--timeout dumps at page load, before the API call returns: tried, failed.)
+timeout 120 "$CHROME" --headless=new --disable-gpu --no-first-run --enable-logging=stderr --v=0 \
+  --virtual-time-budget=30000 --dump-dom "$URL?cuvant=$WORD" >"$tmp/dom.html" 2>"$tmp/console.log"
 
 python3 - "$tmp/dom.html" "$tmp/console.log" <<'PY'
 import re, sys
